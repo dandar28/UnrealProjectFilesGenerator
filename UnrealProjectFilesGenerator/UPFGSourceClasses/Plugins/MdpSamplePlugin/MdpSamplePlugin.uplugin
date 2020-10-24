@@ -1,0 +1,20 @@
+{
+  "FileVersion": 3,
+  "FriendlyName": "MdpSamplePlugin",
+  "Version": 1,
+  "VersionName": "1.0.0",
+  "Description": "Framework for building modular game parts for Unreal Engine 4",
+  "Category": "Blueprint",
+  "CreatedBy": "Dandar",
+  "CreatedByURL": "dandar.it",
+  "DocsURL": "dandar.it/MgcChimera",
+  "EnabledByDefault": true,
+  "CanContainContent": "true",
+  "Modules": [
+    {
+      "Name": "MdpCoreModule",
+      "Type": "Runtime",
+      "LoadingPhase": "PreDefault"
+    }
+  ]
+}

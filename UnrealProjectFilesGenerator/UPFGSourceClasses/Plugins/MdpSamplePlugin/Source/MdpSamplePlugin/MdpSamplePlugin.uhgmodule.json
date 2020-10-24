@@ -1,0 +1,5 @@
+{
+  "name": "MdpSamplePlugin",
+  "PublicDependencyModuleNames": ["MdpCoreModule"],
+  "PrivateDependencyModuleNames": []
+}
