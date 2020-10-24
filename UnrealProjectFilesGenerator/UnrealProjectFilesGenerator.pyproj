@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>fa1b2724-f2ff-4ca6-ac11-faf76fd648da</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>UnrealHeaderGenerator.py</StartupFile>
+    <StartupFile>UnrealProjectFilesGenerator.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -21,7 +21,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="UnrealHeaderGenerator.py" />
+    <Compile Include="UnrealProjectFilesGenerator.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

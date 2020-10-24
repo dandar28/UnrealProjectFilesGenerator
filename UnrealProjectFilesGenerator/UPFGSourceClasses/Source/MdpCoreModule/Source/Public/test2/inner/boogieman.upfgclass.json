@@ -1,0 +1,9 @@
+{
+	"alias": "IApple",
+	"name": "BoogiemanComponentBoy",
+	"namespace": "CHI::BoogiemanNS",
+	"type": "UInterface",
+	"functions": [
+		"void Boogie(${TypeAlias['IBanana']} banana)"
+	]
+}
