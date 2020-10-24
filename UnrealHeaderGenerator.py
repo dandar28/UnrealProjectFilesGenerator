@@ -1,6 +1,7 @@
 
 import os
 import sys
+import pkgutil
 import glob
 import fnmatch
 
@@ -42,6 +43,18 @@ class Utils():
 				files = filter(lambda file: Utils.Ext.MatchesExtensions( extensions ), files)
 				for filename in files:
 					yield folder, filename
+
+		def LoadAllModulesFromDir(dirname, import_globally = True):
+			for importer, package_name, _ in pkgutil.iter_modules([dirname]):
+				full_package_name = '%s.%s' % (dirname, package_name)
+				full_package_name = full_package_name.replace('/', '.')
+				if full_package_name not in sys.modules:
+					module = importer.find_module(package_name)
+					loaded_module = module.load_module(package_name)
+					if import_globally:
+						sys.modules[full_package_name] = loaded_module
+						# __all__[package_name] = loaded_module
+					yield loaded_module
 		
 class FileData():
 	def __init__(self):
@@ -96,29 +109,29 @@ class UHG():
 		data["Settings"] = UHG.settings
 		return data
 
-	def RecurseTemplates(folder_in = None, folder_out = None, template_ext = None):
-		folder_in = UHG.settings.GetInputPath() if folder_in is None else folder_in
-		folder_out = UHG.settings.GetOutputPath() if folder_out is None else folder_out
-		template_ext = UHG.settings.GetTemplateExt() if template_ext is None else template_ext
+	def RecurseUHGClasses(folder_in = None, folder_out = None, uhgclass_ext = None):
+		folder_in = UHG.settings.GetInputClassesPath() if folder_in is None else folder_in
+		folder_out = UHG.settings.GetOutputClassesPath() if folder_out is None else folder_out
+		uhgclass_ext = UHG.settings.GetClassExt() if uhgclass_ext is None else uhgclass_ext
 
-		for folder_src, template_filename in Utils.Path.RecurseFilenames(folder_in, '*'+template_ext):
-			template_name = template_filename[:template_filename.rfind(template_ext)]
+		for folder_src, uhgclass_filename in Utils.Path.RecurseFilenames(folder_in, '*'+uhgclass_ext):
+			uhgclass_name = uhgclass_filename[:uhgclass_filename.rfind(uhgclass_ext)]
 			relative_folder = folder_src[folder_src.find(folder_in)+len(folder_in):].lstrip('\\').lstrip('/')
 			folder_dest = os.path.join(folder_out, relative_folder)
 
 			header = HeaderFile()
 			
-			header.template_data.SetFolder(folder_src)
-			header.template_data.SetName(template_name)
-			header.template_data.Load()
+			header.uhgclass_data.SetFolder(folder_src)
+			header.uhgclass_data.SetName(uhgclass_name)
+			header.uhgclass_data.Load()
 
 			class CustomData():
 				FolderSrc = folder_src
 				FolderDest = folder_dest
 				RelativeFolder = relative_folder
-				TemplateName = template_name
+				UHGClassName = uhgclass_name
 				Header = header
-				Template = header.template_data
+				UHGClass = header.uhgclass_data
 
 			yield CustomData
 
@@ -143,136 +156,67 @@ class UHG():
 
 		def NormalizeFilename(filename):
 			return Utils.String.ToLowerCase(filename)
+		
+	class Labels():
+		uhgInputTemplates = 'uhgInputTemplates'
+		uhgInputClasses = 'uhgInputClasses'
+		uhgOutputClasses = 'uhgOutputClasses'
+		uhgTemplateExt = 'uhgTemplateExt'
+		uhgClassExt = 'uhgClassExt'
 
 	class Settings():
 		def __init__(self):
 			self.settings = FileData()
-			self.settings.filename = "UHG.settings.json"
+			self.settings.filename = "UHG/UHG.settings.json"
 
 			# Default values
-			self.SetInputPath("templates")
-			self.SetOutputPath("generated")
-			self.SetTemplateExt(".template.json")
+			self.SetInputTemplatesPath("UHG/UHGTemplates")
+			self.SetInputClassesPath("UHG/UHGClasses")
+			self.SetOutputClassesPath("UHGGeneratedClasses")
+			self.SetTemplateExt(".uhgtemplate.json")
+			self.SetClassExt(".uhgclass.json")
 			self.SetAPI("UNKNOWN_API")
 
 			# Load custom values (overwrite if necessary)
 			self.settings.Load()
 
-		def GetInputPath(self):
-			return self.settings.data["input"]
+		def GetInputTemplatesPath(self):
+			return self.settings.data[UHG.Labels.uhgInputTemplates]
+		
+		def GetInputClassesPath(self):
+			return self.settings.data[UHG.Labels.uhgInputClasses]
 
-		def GetOutputPath(self):
-			return self.settings.data["output"]
+		def GetOutputClassesPath(self):
+			return self.settings.data[UHG.Labels.uhgOutputClasses]
 
 		def GetTemplateExt(self):
-			return self.settings.data["templateExt"]
+			return self.settings.data[UHG.Labels.uhgTemplateExt]
+
+		def GetClassExt(self):
+			return self.settings.data[UHG.Labels.uhgClassExt]
 
 		def GetAPI(self):
 			return self.settings.data["API"]
 
-		def SetInputPath(self, value):
-			self.settings.data["input"] = value
+		def SetInputTemplatesPath(self, value):
+			self.settings.data[UHG.Labels.uhgInputTemplates] = value
 
-		def SetOutputPath(self, value):
-			self.settings.data["output"] = value
+		def SetInputClassesPath(self, value):
+			self.settings.data[UHG.Labels.uhgInputClasses] = value
+
+		def SetOutputClassesPath(self, value):
+			self.settings.data[UHG.Labels.uhgOutputClasses] = value
 
 		def SetTemplateExt(self, value):
-			self.settings.data["templateExt"] = value
+			self.settings.data[UHG.Labels.uhgTemplateExt] = value
+
+		def SetClassExt(self, value):
+			self.settings.data[UHG.Labels.uhgClassExt] = value
 
 		def SetAPI(self, value):
 			self.settings.data["API"] = value
 
-UHG.settings = UHG.Settings()
-
-UHG.classNames["UInterface"] = 'I${name}Interface'
-UHG.templates["UInterface"] = '''
-#pragma once
-
-// unreal headers
-#include "CoreMinimal.h"
-
-// generated headers
-#include "${className}.generated.h"
-
-UINTERFACE(${metadata["uinterface"] if 'uinterface' in metadata else ''})
-class ${Settings.GetAPI()} U${name}Interface : public UInterface {
-	GENERATED_UINTERFACE_BODY()
-};
-
-class I${name}Interface {
-	GENERATED_IINTERFACE_BODY()	
-public:
-
-% for func in functions:
-	UFUNCTION(${func["metadata"]})
-	${func["declaration"]};
-
-% endfor
-};
-
-// using ${namespace}::I${name} = I${name}Interface;
-''';
-
-UHG.classNames["UObject"] = 'U${name}'
-UHG.templates["UObject"] = '''
-#pragma once
-
-// unreal headers
-#include "CoreMinimal.h"
-
-// generated headers
-#include "${className}.generated.h"
-
-UCLASS(${metadata["uclass"] if 'uclass' in metadata else ''})
-class ${className} : public UObject {
-	GENERATED_CLASS()	
-public:
-% for member in members:
-	UPROPERTY(${member["metadata"]})
-	${member["declaration"]};
-
-% endfor
-
-% for func in functions:
-	UFUNCTION(${func["metadata"]})
-	${func["declaration"]};
-
-% endfor
-};
-
-// using ${namespace}::U${TemplateData.GetAlias()} = ${className};
-''';
-
-UHG.classNames["FStruct"] = 'F${name}Struct'
-UHG.templates["FStruct"] = '''
-#pragma once
-
-// unreal headers
-#include "CoreMinimal.h"
-
-// generated headers
-#include "${className}.generated.h"
-
-USTRUCT(${metadata["ustruct"] if 'ustruct' in metadata else ''})
-struct ${Settings.GetAPI()} ${className} {
-	GENERATED_CLASS()
-
-% for member in members:
-	UPROPERTY(${member["metadata"]})
-	${member["declaration"]};
-
-% endfor
-
-% for func in functions:
-	${func["declaration"]};
-% endfor
-};
-
-// using ${namespace}::F${alias} = ${className};
-''';
-
-
-class TemplateData(FileData):
+class UHGClassTemplateData(FileData):
 	def __init__(self):
 		super().__init__()
 
@@ -362,7 +306,7 @@ class TemplateData(FileData):
 		return UHG.TemplateDef.NormalizeNamespace(self.data["namespace"])
 
 	def GetFilename(self):
-		return UHG.TemplateDef.NormalizeFilename(self.GetName()+UHG.settings.GetTemplateExt())
+		return UHG.TemplateDef.NormalizeFilename(self.GetName()+UHG.settings.GetClassExt())
 
 	def SetAlias(self, alias):
 		self.data["alias"] = alias
@@ -394,6 +338,7 @@ class TemplateData(FileData):
 		templateName = self.GetName(use_precached=use_precached)
 		templateType = self.GetType(use_precached=use_precached)
 
+		data["UHGClass"] = self
 		data["TemplateData"] = self
 		data["className"] = className
 		data["name"] = templateName
@@ -423,19 +368,19 @@ class TemplateData(FileData):
 
 class HeaderFile():
 	def __init__(self):
-		self.template_data = TemplateData()
+		self.uhgclass_data = UHGClassTemplateData()
 
 	def Template(self):
-		return self.template_data
+		return self.uhgclass_data
 		
 	def GetName(self):
-		return self.template_data.GetClassName()
+		return self.uhgclass_data.GetClassName()
 
 	def GetFilename(self):
 		return self.GetName()+'.h'
 
 	def GenerateContent(self):
-		return self.template_data.Render()
+		return self.uhgclass_data.Render()
 
 	def GenerateAndSave(self, folder):
 		if not os.path.exists(folder):
@@ -443,19 +388,34 @@ class HeaderFile():
 		with open(os.path.join(folder, self.GetFilename()), "w") as text_file:
 			text_file.write(self.GenerateContent())
 	
+UHG.settings = UHG.Settings()
+
 if __name__== "__main__":
+
+	# Import all templates from template modules
+
+	for module in Utils.Path.LoadAllModulesFromDir(UHG.settings.GetInputTemplatesPath()):
+		print("imported module: ", module)
+
+		if not hasattr(module, 'GetTemplateInfo'):
+			continue
+
+		templateName, templateContent, className = module.GetTemplateInfo()
+		
+		UHG.classNames[templateName] = className
+		UHG.templates[templateName] = templateContent
 
 	# Cook all templates in local data
 
-	for data in UHG.RecurseTemplates():
-		alias = data.Template.GetAlias()
+	for data in UHG.RecurseUHGClasses():
+		alias = data.UHGClass.GetAlias()
 		if alias is not "":
-			UHG.TypeAliases[alias] = data.Template.GetClassName()
+			UHG.TypeAliases[alias] = data.UHGClass.GetClassName()
 
 	# For all files you find in a certain folder (and subfolders recursively)
 	# consider each file and generate, from it as a template, the corresponding
 	# generated header - by also mantaining the tree structure
 
-	for data in UHG.RecurseTemplates():
+	for data in UHG.RecurseUHGClasses():
 		data.Header.GenerateAndSave(data.FolderDest)
 			
