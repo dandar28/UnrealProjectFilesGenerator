@@ -184,8 +184,8 @@ class UHG():
 
 UHG.settings = UHG.Settings()
 
-UHG.classNames["Interface"] = 'I${name}Interface'
-UHG.templates["Interface"] = '''
+UHG.classNames["UInterface"] = 'I${name}Interface'
+UHG.templates["UInterface"] = '''
 #pragma once
 
 // unreal headers
@@ -202,14 +202,75 @@ class ${Settings.GetAPI()} U${name}Interface : public UInterface {
 class I${name}Interface {
 	GENERATED_IINTERFACE_BODY()	
 public:
+
 % for func in functions:
 	UFUNCTION(${func["metadata"]})
 	${func["declaration"]};
+
 % endfor
 };
 
 // using ${namespace}::I${name} = I${name}Interface;
 ''';
+
+UHG.classNames["UObject"] = 'U${name}'
+UHG.templates["UObject"] = '''
+#pragma once
+
+// unreal headers
+#include "CoreMinimal.h"
+
+// generated headers
+#include "${className}.generated.h"
+
+UCLASS(${metadata["uclass"] if 'uclass' in metadata else ''})
+class ${className} : public UObject {
+	GENERATED_CLASS()	
+public:
+% for member in members:
+	UPROPERTY(${member["metadata"]})
+	${member["declaration"]};
+
+% endfor
+
+% for func in functions:
+	UFUNCTION(${func["metadata"]})
+	${func["declaration"]};
+
+% endfor
+};
+
+// using ${namespace}::U${TemplateData.GetAlias()} = ${className};
+''';
+
+UHG.classNames["FStruct"] = 'F${name}Struct'
+UHG.templates["FStruct"] = '''
+#pragma once
+
+// unreal headers
+#include "CoreMinimal.h"
+
+// generated headers
+#include "${className}.generated.h"
+
+USTRUCT(${metadata["ustruct"] if 'ustruct' in metadata else ''})
+struct ${Settings.GetAPI()} ${className} {
+	GENERATED_CLASS()
+
+% for member in members:
+	UPROPERTY(${member["metadata"]})
+	${member["declaration"]};
+
+% endfor
+
+% for func in functions:
+	${func["declaration"]};
+% endfor
+};
+
+// using ${namespace}::F${alias} = ${className};
+''';
+
 
 class TemplateData(FileData):
 	def __init__(self):
@@ -242,7 +303,26 @@ class TemplateData(FileData):
 		return self.data["functions"]
 	
 	def GetMembersObjectArray(self, use_precached=False):
-		return self.GetMembersArray(use_precached=use_precached)
+		members = self.GetMembersArray(use_precached=use_precached)
+
+		memberobjects = []
+		for memberdef in members:
+			memberobj = {}
+
+			if isinstance(memberdef, object) and not isinstance(memberdef, str):
+				memberobj = memberdef
+			else:
+				memberobj['declaration'] = memberdef
+				memberobj['metadata'] = ''
+					
+			if not Utils.Object.CheckMember(memberobj, "declaration") or not isinstance(memberobj['declaration'], str):
+				memberobj['declaration'] = memberdef if isinstance(memberdef, str) else ''
+			if not Utils.Object.CheckMember(memberobj, "metadata") or not isinstance(memberobj['metadata'], str):
+				memberobj['metadata'] = ''
+
+			memberobjects.append(memberobj)
+
+		return memberobjects
 
 	def GetMembersArray(self, use_precached=False):
 		Utils.Object.AssignIfInvalid(self.data, "members", {})
