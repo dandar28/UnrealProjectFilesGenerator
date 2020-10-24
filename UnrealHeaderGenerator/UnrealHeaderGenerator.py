@@ -37,6 +37,16 @@ class Utils():
 					return True
 			return False
 
+		def Split(filename):
+			basename = filename
+			ext = None
+			extFull = ""
+			while ext is not "":
+				basename, ext = os.path.splitext(basename)
+				extFull = ext + extFull
+			return basename, extFull
+
+
 	class Path():
 		def RecurseFilenames(folder, extensions=['*']):
 			for folder, subs, files in os.walk(folder):
@@ -56,20 +66,69 @@ class Utils():
 						# __all__[package_name] = loaded_module
 					yield loaded_module
 		
+class FileFactory():
+	MapOfFileClasses = {}
+
+	def Generate(filename):
+		
+		basename, ext = Utils.Ext.Split(filename)
+
+		fileKey = ext if ext in FileFactory.MapOfFileClasses else None
+		fileClass = FileFactory.MapOfFileClasses[fileKey]
+
+		file = fileClass()
+		file.file_data.SetFilename(filename)
+
+		return file
+	
 class FileData():
 	def __init__(self):
-		self.data = {}
+		self.data = None
 		self.filename = 'file.dat'
 		self.folder = ''
 
 	def SetFolder(self, folder):
 		self.folder = folder
 
+	def SetFilename(self, filename):
+		self.filename = filename
+
 	def GetFolder(self):
 		return self.folder
 
 	def GetFilename(self):
 		return self.filename
+	
+	def GetName(self):
+		return Utils.Ext.Split(self.filename)[0]
+
+	def GetExtension(self):
+		return Utils.Ext.Split(self.filename)[1]
+		
+	def Save(self):
+		folder = self.GetFolder()
+		if not os.path.exists(folder):
+			os.makedirs(folder)
+		with open(os.path.join(folder, self.GetFilename()), 'w') as f:
+			f.write(self.data)
+
+	def Load(self, overwrite = False):
+		folder = self.GetFolder()
+		if folder and not os.path.exists(folder):
+			os.makedirs(folder)
+		filename = os.path.join(folder, self.GetFilename())
+
+		if not os.path.exists(filename):
+			return
+
+		with open(filename, 'r') as f:
+			self.data = f.read()
+
+class JsonFileData(FileData):
+	def __init__(self):
+		super().__init__()
+
+		self.data = {}
 		
 	def Save(self):
 		folder = self.GetFolder()
@@ -112,6 +171,27 @@ class UHG():
 		data["Templates"] = UHG.templates
 		return data
 
+	def RecurseFiles(folder_in = None, folder_out = None):
+		folder_in = UHG.settings.GetInputClassesPath() if folder_in is None else folder_in
+		folder_out = UHG.settings.GetOutputClassesPath() if folder_out is None else folder_out
+
+		for folder_src, filename in Utils.Path.RecurseFilenames(folder_in, '*'):
+			relative_folder = folder_src[folder_src.find(folder_in)+len(folder_in):].lstrip('\\').lstrip('/')
+			folder_dest = os.path.join(folder_out, relative_folder)
+
+			file_object = FileFactory.Generate(filename)
+			
+			file_object.file_data.SetFolder(folder_src)
+			file_object.file_data.Load()
+
+			class CustomData():
+				FolderSrc = folder_src
+				FolderDest = folder_dest
+				RelativeFolder = relative_folder
+				File = file_object
+
+			yield CustomData
+
 	def RecurseUHGClasses(folder_in = None, folder_out = None, uhgclass_ext = None):
 		folder_in = UHG.settings.GetInputClassesPath() if folder_in is None else folder_in
 		folder_out = UHG.settings.GetOutputClassesPath() if folder_out is None else folder_out
@@ -150,6 +230,12 @@ class UHG():
 
 		def NormalizeName(name):
 			return Utils.String.ToPascalCase(name)
+		
+		def NormalizeClassName(name):
+			return Utils.String.ToPascalCase(name)
+		
+		def NormalizeModuleName(name):
+			return Utils.String.ToPascalCase(name)
 
 		def NormalizeType(type):
 			return Utils.String.ToPascalCase(type)
@@ -166,10 +252,11 @@ class UHG():
 		uhgOutputClasses = 'uhgOutputClasses'
 		uhgTemplateExt = 'uhgTemplateExt'
 		uhgClassExt = 'uhgClassExt'
+		uhgModuleExt = 'uhgModuleExt'
 
 	class Settings():
 		def __init__(self):
-			self.settings = FileData()
+			self.settings = JsonFileData()
 			self.settings.filename = "UHG/UHG.settings.json"
 
 			# Default values
@@ -178,6 +265,7 @@ class UHG():
 			self.SetOutputClassesPath("UHGGeneratedClasses")
 			self.SetTemplateExt(".uhgtemplate.json")
 			self.SetClassExt(".uhgclass.json")
+			self.SetModuleExt(".uhgmodule.json")
 			self.SetAPI("UNKNOWN_API")
 
 			# Load custom values (overwrite if necessary)
@@ -197,6 +285,9 @@ class UHG():
 
 		def GetClassExt(self):
 			return self.settings.data[UHG.Labels.uhgClassExt]
+		
+		def GetModuleExt(self):
+			return self.settings.data[UHG.Labels.uhgModuleExt]
 
 		def GetAPI(self):
 			return self.settings.data["API"]
@@ -215,11 +306,114 @@ class UHG():
 
 		def SetClassExt(self, value):
 			self.settings.data[UHG.Labels.uhgClassExt] = value
+			
+		def SetModuleExt(self, value):
+			self.settings.data[UHG.Labels.uhgModuleExt] = value
 
 		def SetAPI(self, value):
 			self.settings.data["API"] = value
 
-class UHGClassTemplateData(FileData):
+class UHGAbstractTemplateData(JsonFileData):
+	def __init__(self):
+		super().__init__()
+
+	def SetFilename(self, filename):
+		basename, ext = Utils.Ext.Split(filename)
+		if 'name' not in self.data:
+			self.SetName(basename)
+		super().SetFilename(filename)
+
+	def GetMetadata(self, use_precached=False):
+		Utils.Object.AssignIfInvalid(self.data, "metadata", {})
+		return self.data["metadata"]
+
+	def GetAlias(self, use_precached=False):
+		if 'alias' not in self.data:
+			return ''
+		return UHG.TemplateDef.NormalizeAlias(self.data["alias"])
+
+	def GetName(self, use_precached=False):
+		if 'name' not in self.data:
+			return ''
+		return UHG.TemplateDef.NormalizeName(self.data["name"])
+	
+	def GetType(self, use_precached=False):
+		if 'type' not in self.data:
+			return ''
+		return UHG.TemplateDef.NormalizeType(self.data["type"])
+	
+	def GetExtension(self):
+		return ""
+
+	def GetFilename(self):
+		return UHG.TemplateDef.NormalizeFilename(self.GetName()+self.GetExtension())
+
+	def SetAlias(self, alias):
+		self.data["alias"] = alias
+
+	def SetName(self, name):
+		self.data["name"] = name
+		
+	def SetType(self, type):
+		self.data["type"] = type
+
+	def BuildData(self, use_precached=False):
+		data = {}
+		templateName = self.GetName(use_precached=use_precached)
+		templateType = self.GetType(use_precached=use_precached)
+
+		data["TemplateData"] = self
+		data["name"] = templateName
+		data["type"] = templateType
+		data["metadata"] = self.GetMetadata(use_precached=use_precached)
+		data = UHG.ExtendData(data)
+		return data
+
+	def Render(self, recursions = UHG.DEFAULT_RECURSIONS):
+		template_content = UHG.GetTemplate(self.GetType())
+		return self.RenderSomeContent(template_content, recursions)
+
+	def RenderSomeContent(self, template_content, recursions = 1):
+		built_data = self.BuildData()
+		return self.RenderSomeContentWithData(template_content, built_data, recursions)
+
+	def RenderSomeContentWithData(self, template_content, built_data, recursions = 1):
+		for i in range(recursions):
+			try:
+				template_content = Template(template_content).render(**built_data, **UHG.TypeAliases)
+			except Exception as error:
+				print("Some error occurred while rendering template: \n>>>\t", error, "\n")
+		return template_content
+
+class UHGModuleTemplateData(UHGAbstractTemplateData):
+	def __init__(self):
+		super().__init__()
+		self.SetType("Module")
+
+	def GetExtension(self):
+		return UHG.settings.GetModuleExt()
+	
+	def GetModuleName(self, use_precached=False):
+		moduleName = ''
+		templateType = self.GetType()
+		if 'moduleName' in self.data:
+			moduleName = UHG.TemplateDef.NormalizeModuleName(self.data["moduleName"])
+		if moduleName or use_precached:
+			return moduleName
+		return self.GetName() # self.RenderSomeContentWithData(UHG.GetClassNameByTemplateType(templateType), self.BuildData(use_precached=True))
+
+	def SetModuleName(self, module_name):
+		self.data["moduleName"] = module_name
+		
+	def BuildData(self, use_precached=False):
+		data = super().BuildData(use_precached=use_precached)
+		moduleName = self.GetModuleName(use_precached=use_precached)
+
+		data["UHGModule"] = self
+		data["moduleName"] = moduleName
+		return data
+
+class UHGClassTemplateData(UHGAbstractTemplateData):
 	def __init__(self):
 		super().__init__()
 
@@ -275,20 +469,6 @@ class UHGClassTemplateData(FileData):
 		Utils.Object.AssignIfInvalid(self.data, "members", {})
 		return self.data["members"]
 	
-	def GetMetadata(self, use_precached=False):
-		Utils.Object.AssignIfInvalid(self.data, "metadata", {})
-		return self.data["metadata"]
-
-	def GetAlias(self, use_precached=False):
-		if 'alias' not in self.data:
-			return ''
-		return UHG.TemplateDef.NormalizeAlias(self.data["alias"])
-
-	def GetName(self, use_precached=False):
-		if 'name' not in self.data:
-			return ''
-		return UHG.TemplateDef.NormalizeName(self.data["name"])
-
 	def GetClassName(self, use_precached=False):
 		className = ''
 		templateType = self.GetType()
@@ -298,30 +478,16 @@ class UHGClassTemplateData(FileData):
 			return className
 		return self.RenderSomeContentWithData(UHG.GetClassNameByTemplateType(templateType), self.BuildData(use_precached=True))
 
-	def GetType(self, use_precached=False):
-		if 'type' not in self.data:
-			return ''
-		return UHG.TemplateDef.NormalizeType(self.data["type"])
-	
 	def GetNamespace(self, use_precached=False):
 		if 'namespace' not in self.data:
 			return ''
 		return UHG.TemplateDef.NormalizeNamespace(self.data["namespace"])
 
-	def GetFilename(self):
-		return UHG.TemplateDef.NormalizeFilename(self.GetName()+UHG.settings.GetClassExt())
-
-	def SetAlias(self, alias):
-		self.data["alias"] = alias
-
-	def SetName(self, name):
-		self.data["name"] = name
+	def GetExtension(self):
+		return UHG.settings.GetClassExt()
 
 	def SetClassName(self, class_name):
 		self.data["className"] = class_name
-
-	def SetType(self, type):
-		self.data["type"] = type
 
 	def SetNamespace(self, namespace):
 		self.data["namespace"] = namespace
@@ -336,64 +502,103 @@ class UHGClassTemplateData(FileData):
 		self.GetFunctionsArray().remove(func_definition)
 
 	def BuildData(self, use_precached=False):
-		data = {}
+		data = super().BuildData(use_precached=use_precached)
 		className = self.GetClassName(use_precached=use_precached)
-		templateName = self.GetName(use_precached=use_precached)
-		templateType = self.GetType(use_precached=use_precached)
 
 		data["UHGClass"] = self
-		data["TemplateData"] = self
 		data["className"] = className
-		data["name"] = templateName
-		data["type"] = templateType
 		data["namespace"] = self.GetNamespace(use_precached=use_precached)
 		data["functions"] = self.GetFunctionsObjectArray(use_precached=use_precached)
 		data["members"] = self.GetMembersObjectArray(use_precached=use_precached)
-		data["metadata"] = self.GetMetadata(use_precached=use_precached)
-		data = UHG.ExtendData(data)
 		return data
 
-	def Render(self, recursions = UHG.DEFAULT_RECURSIONS):
-		template_content = UHG.GetTemplate(self.GetType())
-		return self.RenderSomeContent(template_content, recursions)
-
-	def RenderSomeContent(self, template_content, recursions = 1):
-		built_data = self.BuildData()
-		return self.RenderSomeContentWithData(template_content, built_data, recursions)
-
-	def RenderSomeContentWithData(self, template_content, built_data, recursions = 1):
-		for i in range(recursions):
-			try:
-				template_content = Template(template_content).render(**built_data, **UHG.TypeAliases)
-			except Exception as error:
-				print("Some error occurred while rendering template: \n>>>\t", error, "\n")
-		return template_content
-
-class HeaderFile():
+class GenericFile():
 	def __init__(self):
-		self.uhgclass_data = UHGClassTemplateData()
+		self.file_data = FileData()
 
-	def Template(self):
-		return self.uhgclass_data
+	def Data(self):
+		return self.file_data
 		
 	def GetName(self):
-		return self.uhgclass_data.GetClassName()
+		return self.file_data.GetName()
+		
+	def GetExtension(self):
+		return self.file_data.GetExtension()
 
 	def GetFilename(self):
-		return self.GetName()+'.h'
+		return self.GetName()+self.GetExtension()
 
 	def GenerateContent(self):
-		return self.uhgclass_data.Render()
+		return self.file_data.data
 
 	def GenerateAndSave(self, folder):
 		if not os.path.exists(folder):
 			os.makedirs(folder)
 		with open(os.path.join(folder, self.GetFilename()), "w") as text_file:
 			text_file.write(self.GenerateContent())
+			
+class HeaderFile(GenericFile):
+	def __init__(self):
+		self.file_data = UHGClassTemplateData()
+
+	def Template(self):
+		return self.file_data
+		
+	def GetName(self):
+		return self.file_data.GetClassName()
+
+	def GetExtension(self):
+		return '.h'
+
+	def GenerateContent(self):
+		return self.file_data.Render()
+
+class ModuleFile(GenericFile):
+	def __init__(self):
+		self.file_data = UHGModuleTemplateData()
+
+	def Template(self):
+		return self.file_data
+		
+	def GetName(self):
+		return self.file_data.GetModuleName()
+	
+	def GetExtension(self):
+		return '.Build.cs'
+
+	def GenerateContent(self):
+		return self.file_data.Render()
+	
+	def GenerateAndSave(self, folder):
+		if not os.path.exists(folder):
+			os.makedirs(folder)
+
+		templateModuleHeader = UHG.GetTemplate("ModuleHeader")
+		templateModuleSource = UHG.GetTemplate("ModuleSource")
+
+		with open(os.path.join(folder, self.GetFilename()), "w") as text_file:
+			text_file.write(self.GenerateContent())
+			
+		for template, subfolder, ext in [(templateModuleHeader, os.path.join(folder, "Source/Public"), '.h'), (templateModuleSource, os.path.join(folder, "Source/Private"), '.cpp')]:
+			if not os.path.exists(subfolder):
+				os.makedirs(subfolder)
+			with open(os.path.join(subfolder, self.GetName()+ext), "w") as text_file:
+				text_file.write(self.file_data.RenderSomeContent(template))
+
+		# \TODO : Also generate the module .h and .cpp, other than .Build.cs only
+
+def SetupFileClasses():
+	FileFactory.MapOfFileClasses[UHG.settings.GetClassExt()] = HeaderFile
+	FileFactory.MapOfFileClasses[UHG.settings.GetModuleExt()] = ModuleFile
+	FileFactory.MapOfFileClasses[None] = GenericFile
 	
 UHG.settings = UHG.Settings()
 
 if __name__== "__main__":
+
+	# Setup file classes of the file factory
+
+	SetupFileClasses()
 
 	# Import all templates from template modules
 
@@ -413,15 +618,18 @@ if __name__== "__main__":
 
 	# Cook all templates in local data
 
-	for data in UHG.RecurseUHGClasses():
-		alias = data.UHGClass.GetAlias()
+	for data in UHG.RecurseFiles():
+		if not hasattr(data.File.file_data, "GetAlias"):
+			continue
+
+		alias = data.File.file_data.GetAlias()
 		if alias is not "":
-			UHG.TypeAliases[alias] = data.UHGClass.GetClassName()
+			UHG.TypeAliases[alias] = data.File.GetName()
 
 	# For all files you find in a certain folder (and subfolders recursively)
 	# consider each file and generate, from it as a template, the corresponding
 	# generated header - by also mantaining the tree structure
 
-	for data in UHG.RecurseUHGClasses():
-		data.Header.GenerateAndSave(data.FolderDest)
+	for data in UHG.RecurseFiles():
+		data.File.GenerateAndSave(data.FolderDest)
 			
