@@ -8,7 +8,7 @@ public class MdpSamplePlugin : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicDependencyModuleNames.AddRange(new string[] {
-			MdpSamplePlugin,
+			"MdpCoreModule",
 			"Core", 
 			"CoreUObject",
 			"Engine"
