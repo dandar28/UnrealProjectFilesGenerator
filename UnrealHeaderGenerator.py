@@ -9,6 +9,13 @@ import json
 from mako.template import Template
 
 class Utils():
+	class Object():
+		def CheckMember(obj, member):
+			return member in obj and member is not None
+
+		def AssignIfInvalid(obj, member, default):
+			obj[member] = obj[member] if Utils.Object.CheckMember(obj, member) else default
+
 	class String():
 		def CapitalFirst(string):
 			return string[:1].upper() + string[1:] # string.title()
@@ -80,7 +87,14 @@ class UHG():
 	templates = {}
 	classNames = {}
 
+	TemplateInfo = {}
 	TypeAliases = {}
+
+	def ExtendData(data):
+		data["TypeAlias"] = UHG.TypeAliases
+		data["TemplateInfo"] = UHG.TemplateInfo
+		data["Settings"] = UHG.settings
+		return data
 
 	def RecurseTemplates(folder_in = None, folder_out = None, template_ext = None):
 		folder_in = UHG.settings.GetInputPath() if folder_in is None else folder_in
@@ -139,6 +153,7 @@ class UHG():
 			self.SetInputPath("templates")
 			self.SetOutputPath("generated")
 			self.SetTemplateExt(".template.json")
+			self.SetAPI("UNKNOWN_API")
 
 			# Load custom values (overwrite if necessary)
 			self.settings.Load()
@@ -152,6 +167,9 @@ class UHG():
 		def GetTemplateExt(self):
 			return self.settings.data["templateExt"]
 
+		def GetAPI(self):
+			return self.settings.data["API"]
+
 		def SetInputPath(self, value):
 			self.settings.data["input"] = value
 
@@ -161,18 +179,33 @@ class UHG():
 		def SetTemplateExt(self, value):
 			self.settings.data["templateExt"] = value
 
+		def SetAPI(self, value):
+			self.settings.data["API"] = value
+
 UHG.settings = UHG.Settings()
 
-UHG.classNames["Interface"] = 'I${name}'
+UHG.classNames["Interface"] = 'I${name}Interface'
 UHG.templates["Interface"] = '''
-UINTERFACE()
-class U${name}Interface {
-% for func in functions:
-	${func};
-% endfor
+#pragma once
+
+// unreal headers
+#include "CoreMinimal.h"
+
+// generated headers
+#include "${className}.generated.h"
+
+UINTERFACE(${metadata["uinterface"] if 'uinterface' in metadata else ''})
+class ${Settings.GetAPI()} U${name}Interface : public UInterface {
+	GENERATED_UINTERFACE_BODY()
 };
 
 class I${name}Interface {
+	GENERATED_IINTERFACE_BODY()	
+public:
+% for func in functions:
+	UFUNCTION(${func["metadata"]})
+	${func["declaration"]};
+% endfor
 };
 
 // using ${namespace}::I${name} = I${name}Interface;
@@ -182,35 +215,68 @@ class TemplateData(FileData):
 	def __init__(self):
 		super().__init__()
 
-	def GetFunctionsArray(self):
-		self.data["functions"] = [] if self.data["functions"] is None else self.data["functions"]
-		return self.data["functions"]
+	def GetFunctionsObjectArray(self, use_precached=False):
+		functions = self.GetFunctionsArray(use_precached=use_precached)
 
-	def GetAlias(self):
+		funcobjects = []
+		for funcdef in functions:
+			funcobj = {}
+
+			if isinstance(funcdef, object) and not isinstance(funcdef, str):
+				funcobj = funcdef
+			else:
+				funcobj['declaration'] = funcdef
+				funcobj['metadata'] = ''
+					
+			if not Utils.Object.CheckMember(funcobj, "declaration") or not isinstance(funcobj['declaration'], str):
+				funcobj['declaration'] = funcdef if isinstance(funcdef, str) else ''
+			if not Utils.Object.CheckMember(funcobj, "metadata") or not isinstance(funcobj['metadata'], str):
+				funcobj['metadata'] = ''
+
+			funcobjects.append(funcobj)
+
+		return funcobjects
+
+	def GetFunctionsArray(self, use_precached=False):
+		Utils.Object.AssignIfInvalid(self.data, "functions", [])
+		return self.data["functions"]
+	
+	def GetMembersObjectArray(self, use_precached=False):
+		return self.GetMembersArray(use_precached=use_precached)
+
+	def GetMembersArray(self, use_precached=False):
+		Utils.Object.AssignIfInvalid(self.data, "members", {})
+		return self.data["members"]
+	
+	def GetMetadata(self, use_precached=False):
+		Utils.Object.AssignIfInvalid(self.data, "metadata", {})
+		return self.data["metadata"]
+
+	def GetAlias(self, use_precached=False):
 		if 'alias' not in self.data:
 			return ''
 		return UHG.TemplateDef.NormalizeAlias(self.data["alias"])
 
-	def GetName(self):
+	def GetName(self, use_precached=False):
 		if 'name' not in self.data:
 			return ''
 		return UHG.TemplateDef.NormalizeName(self.data["name"])
 
-	def GetClassName(self):
+	def GetClassName(self, use_precached=False):
 		className = ''
 		templateType = self.GetType()
 		if 'className' in self.data:
 			className = UHG.TemplateDef.NormalizeClassName(self.data["className"])
-		if className:
+		if className or use_precached:
 			return className
-		return UHG.GetClassNameByTemplateType(templateType)
+		return self.RenderSomeContentWithData(UHG.GetClassNameByTemplateType(templateType), self.BuildData(use_precached=True))
 
-	def GetType(self):
+	def GetType(self, use_precached=False):
 		if 'type' not in self.data:
 			return ''
 		return UHG.TemplateDef.NormalizeType(self.data["type"])
 	
-	def GetNamespace(self):
+	def GetNamespace(self, use_precached=False):
 		if 'namespace' not in self.data:
 			return ''
 		return UHG.TemplateDef.NormalizeNamespace(self.data["namespace"])
@@ -237,30 +303,42 @@ class TemplateData(FileData):
 		return self.GetFunctionsArray()[index]
 
 	def AddFunction(self, func_definition):
-		self.GetFunctionsArray().push(func_definition)
+		self.GetFunctionsArray().append(func_definition)
 
 	def RemoveFunction(self, func_definition):
 		self.GetFunctionsArray().remove(func_definition)
 
-	def BuildData(self):
+	def BuildData(self, use_precached=False):
 		data = {}
-		className = self.GetClassName()
-		templateName = self.GetName()
-		templateType = self.GetType()
+		className = self.GetClassName(use_precached=use_precached)
+		templateName = self.GetName(use_precached=use_precached)
+		templateType = self.GetType(use_precached=use_precached)
 
+		data["TemplateData"] = self
 		data["className"] = className
 		data["name"] = templateName
 		data["type"] = templateType
-		data["namespace"] = self.GetNamespace()
-		data["functions"] = self.GetFunctionsArray()
-		data["TypeAlias"] = UHG.TypeAliases
+		data["namespace"] = self.GetNamespace(use_precached=use_precached)
+		data["functions"] = self.GetFunctionsObjectArray(use_precached=use_precached)
+		data["members"] = self.GetMembersObjectArray(use_precached=use_precached)
+		data["metadata"] = self.GetMetadata(use_precached=use_precached)
+		data = UHG.ExtendData(data)
 		return data
 
 	def Render(self, recursions = 5):
-		template_content = UHG.GetTemplate(self.data["type"])
+		template_content = UHG.GetTemplate(self.GetType())
+		return self.RenderSomeContent(template_content, recursions)
+
+	def RenderSomeContent(self, template_content, recursions = 1):
 		built_data = self.BuildData()
+		return self.RenderSomeContentWithData(template_content, built_data, recursions)
+
+	def RenderSomeContentWithData(self, template_content, built_data, recursions = 1):
 		for i in range(recursions):
-			template_content = Template(template_content).render(**built_data, **UHG.TypeAliases)
+			try:
+				template_content = Template(template_content).render(**built_data, **UHG.TypeAliases)
+			except Exception as error:
+				print("Some error occurred while rendering template: \n>>>\t", error, "\n")
 		return template_content
 
 class HeaderFile():
@@ -271,7 +349,7 @@ class HeaderFile():
 		return self.template_data
 		
 	def GetName(self):
-		return self.template_data.GetName()
+		return self.template_data.GetClassName()
 
 	def GetFilename(self):
 		return self.GetName()+'.h'
