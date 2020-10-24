@@ -1,0 +1,9 @@
+{
+	"alias": "IBanana",
+	"name": "TestName",
+	"namespace": "CHI::TestNS",
+	"type": "UInterface",
+	"functions": [
+		"void Banaboom(${IApple} apple)"
+	]
+}

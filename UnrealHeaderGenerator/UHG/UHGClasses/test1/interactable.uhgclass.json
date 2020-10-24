@@ -1,0 +1,9 @@
+{
+	"name": "Interactable",
+	"namespace": "CHI::Interaction",
+	"type": "UInterface",
+	"functions": [
+		"void Interact(CHI::Interaction::Interactor interactor, CHI::Common::Context context)",
+		"void OnInteraction(CHI::Common::Event<CHI::Common::Context> delegate)"
+	]
+}

@@ -1,0 +1,8 @@
+{
+  "uhgInputTemplates": "UHG/UHGTemplates",
+  "uhgInputClasses": "UHG/UHGClasses",
+  "uhgOutputClasses": "UHGGeneratedClasses",
+  "uhgTemplateExt": ".uhgtemplate.json",
+  "uhgClassExt": ".uhgclass.json",
+  "API": "UNKNOWN_API"
+}
