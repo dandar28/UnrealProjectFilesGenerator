@@ -12,7 +12,7 @@ public class ${moduleName} : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicDependencyModuleNames.AddRange(new string[] {
-% for curModuleName in UHGModule.data["PublicDependencyModuleNames"]:
+% for curModuleName in UPFGModule.data["PublicDependencyModuleNames"]:
 			"${curModuleName}",
 % endfor
 			"Core", 
@@ -21,7 +21,7 @@ public class ${moduleName} : ModuleRules
 		});
 		
 		PrivateDependencyModuleNames.AddRange(new string[] {
-% for curModuleName in UHGModule.data["PrivateDependencyModuleNames"]:
+% for curModuleName in UPFGModule.data["PrivateDependencyModuleNames"]:
 			"${curModuleName}",
 % endfor
 		});
