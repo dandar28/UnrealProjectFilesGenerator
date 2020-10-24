@@ -76,10 +76,40 @@ class UHG():
     settings = None
     templates = {}
 
+    TypeAliases = {}
+
+    def RecurseTemplates(folder_in, folder_out, template_ext):
+	    folder_in = UHG.settings.GetInputPath()
+	    folder_out = UHG.settings.GetOutputPath()
+	    template_ext = UHG.settings.GetTemplateExt()
+
+	    for folder_src, template_filename in Utils.Path.RecurseFilenames(folder_in, '*'+template_ext):
+	        template_name = template_filename[:template_filename.rfind(template_ext)]
+	        relative_folder = folder_src[folder_src.find(folder_in)+len(folder_in):].lstrip('\\').lstrip('/')
+	        folder_dest = os.path.join(folder_out, relative_folder)
+
+	        header = HeaderFile()
+	        
+	        header.template_data.SetFolder(folder_src)
+	        header.template_data.SetName(template_name)
+
+	        data = {}
+	        data["FolderSrc"] = folder_src
+	        data["FolderDest"] = folder_dest
+	        data["RelativeFolder"] = relative_folder
+	        data["TemplateName"] = template_name
+	        data["Header"] = header
+	        data["Template"] = header.template_data
+
+	        yield **data
+
     def GetTemplate(templateType):
         return UHG.templates[UHG.TemplateDef.NormalizeType(templateType)]
 
     class TemplateDef():
+        def NormalizeAlias(alias):
+            return Utils.String.ToPascalCase(alias)
+
         def NormalizeName(name):
             return Utils.String.ToPascalCase(name)
 
@@ -146,6 +176,9 @@ class TemplateData(FileData):
         self.data["functions"] = [] if self.data["functions"] is None else self.data["functions"]
         return self.data["functions"]
 
+    def GetAlias(self):
+        return UHG.TemplateDef.NormalizeAlias(self.data["alias"])
+
     def GetName(self):
         return UHG.TemplateDef.NormalizeName(self.data["name"])
 
@@ -157,6 +190,9 @@ class TemplateData(FileData):
 
     def GetFilename(self):
         return UHG.TemplateDef.NormalizeFilename(self.GetName()+UHG.settings.GetTemplateExt())
+
+    def SetAlias(self, alias):
+        self.data["alias"] = alias
 
     def SetName(self, name):
         self.data["name"] = name
@@ -182,6 +218,7 @@ class TemplateData(FileData):
         data["type"] = self.GetType()
         data["namespace"] = self.GetNamespace()
         data["functions"] = self.GetFunctionsArray()
+        data["TypeAlias"] = **UHG.TypeAliases
         return data
 
     def Render(self):
@@ -210,24 +247,16 @@ class HeaderFile():
             text_file.write(self.GenerateContent())
     
 if __name__== "__main__":
-    folder_in = UHG.settings.GetInputPath()
-    folder_out = UHG.settings.GetOutputPath()
-    template_ext = UHG.settings.GetTemplateExt()
-    
+
+    # Cook all templates in local data
+
+    for data in UHG.RecurseTemplates(folder_in, folder_out, template_ext):
+    	UHG.TypeAliases[data.Template.GetAlias()] = data.Template.GetName()
+
     # For all files you find in a certain folder (and subfolders recursively)
     # consider each file and generate, from it as a template, the corresponding
     # generated header - by also mantaining the tree structure
 
-    for folder_src, template_filename in Utils.Path.RecurseFilenames(folder_in, '*'+template_ext):
-        template_name = template_filename[:template_filename.rfind(template_ext)]
-        relative_folder = folder_src[folder_src.find(folder_in)+len(folder_in):].lstrip('\\').lstrip('/')
-        folder_dest = os.path.join(folder_out, relative_folder)
-
-        header = HeaderFile()
-        
-        header.template_data.SetFolder(folder_src)
-        header.template_data.SetName(template_name)
-        header.template_data.Load()
-
-        header.GenerateAndSave(folder_dest)
+    for data in UHG.RecurseTemplates(folder_in, folder_out, template_ext):
+        data.Header.GenerateAndSave(data.FolderDest)
             
