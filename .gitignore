@@ -1,0 +1,10 @@
+## Ignore Links
+*.lnk
+
+## Ignore VS Stuff
+*.sln
+.vs/
+*.suo
+
+## Ignore PY Stuff
+__pycache__
