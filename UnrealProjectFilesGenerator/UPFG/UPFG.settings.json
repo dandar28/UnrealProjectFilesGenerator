@@ -1,7 +1,7 @@
 {
   "upfgInputTemplates": "UPFG/UPFGTemplates",
-  "upfgInputClasses": "UPFGSourceClasses",
-  "upfgOutputClasses": "UPFGGeneratedClasses",
+  "upfgInputClasses": "../../UPFGSourceClasses",
+  "upfgOutputClasses": "../../",
   "upfgTemplateExt": ".upfgtemplate.json",
   "upfgClassExt": ".upfgclass.json",
   "API": "UNKNOWN_API"

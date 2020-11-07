@@ -8,6 +8,13 @@ def GetTemplateInfo():
 // unreal headers
 #include "CoreMinimal.h"
 
+% if 'includes' in TemplateData.data:
+// custom headers
+% for include in TemplateData.data["includes"]:
+#include "${Settings.GetIncludePath(include)}"
+% endfor
+% endif
+
 // generated headers
 #include "${className}.generated.h"
 

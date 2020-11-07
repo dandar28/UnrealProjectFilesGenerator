@@ -98,7 +98,13 @@ class FileData():
 
 	def GetFilename(self):
 		return self.filename
+
+	def GetFilepath(self):
+		return UPFG.TemplateDef.NormalizeFilepath(os.path.join(self.GetFolder(), self.GetFilename()))
 	
+	def GetPlainName(self):
+		return self.GetName()
+
 	def GetName(self):
 		return Utils.Ext.Split(self.filename)[0]
 
@@ -109,19 +115,21 @@ class FileData():
 		folder = self.GetFolder()
 		if not os.path.exists(folder):
 			os.makedirs(folder)
-		with open(os.path.join(folder, self.GetFilename()), 'w') as f:
+		filepath = self.GetFilepath()
+
+		with open(filepath, 'w') as f:
 			f.write(self.data)
 
 	def Load(self, overwrite = False):
 		folder = self.GetFolder()
 		if folder and not os.path.exists(folder):
 			os.makedirs(folder)
-		filename = os.path.join(folder, self.GetFilename())
+		filepath = self.GetFilepath()
 
-		if not os.path.exists(filename):
+		if not os.path.exists(filepath):
 			return
 
-		with open(filename, 'r') as f:
+		with open(filepath, 'r') as f:
 			self.data = f.read()
 
 class JsonFileData(FileData):
@@ -134,19 +142,21 @@ class JsonFileData(FileData):
 		folder = self.GetFolder()
 		if not os.path.exists(folder):
 			os.makedirs(folder)
-		with open(os.path.join(folder, self.GetFilename()), 'w') as f:
+		filepath = self.GetFilepath()
+
+		with open(filepath, 'w') as f:
 			json.dump(self.data, f)
 
 	def Load(self, overwrite = False):
 		folder = self.GetFolder()
 		if folder and not os.path.exists(folder):
 			os.makedirs(folder)
-		filename = os.path.join(folder, self.GetFilename())
+		filepath = self.GetFilepath()
 
-		if not os.path.exists(filename):
+		if not os.path.exists(filepath):
 			return
 
-		with open(filename, 'r') as f:
+		with open(filepath, 'r') as f:
 			json_data = json.load(f)
 
 			if overwrite:
@@ -163,8 +173,12 @@ class UPFG():
 
 	TemplateInfo = {}
 	TypeAliases = {}
+	FilePaths = {}
+	FileModulePaths = {}
 
 	def ExtendData(data):
+		data["FilePaths"] = UPFG.FilePaths
+		data["FileModulePaths"] = UPFG.FileModulePaths
 		data["TypeAlias"] = UPFG.TypeAliases
 		data["TemplateInfo"] = UPFG.TemplateInfo
 		data["Settings"] = UPFG.settings
@@ -175,11 +189,18 @@ class UPFG():
 		folder_in = UPFG.settings.GetInputClassesPath() if folder_in is None else folder_in
 		folder_out = UPFG.settings.GetOutputClassesPath() if folder_out is None else folder_out
 
+		module_root_folder = folder_in
+		module_folders = [module_root_folder]
+
 		for folder_src, filename in Utils.Path.RecurseFilenames(folder_in, '*'):
 			relative_folder = folder_src[folder_src.find(folder_in)+len(folder_in):].lstrip('\\').lstrip('/')
 			folder_dest = os.path.join(folder_out, relative_folder)
 
 			file_object = FileFactory.Generate(filename)
+
+			if isinstance(file_object, ModuleFile):
+				module_root_folder = folder_src
+				module_folders.append(module_root_folder)
 			
 			file_object.file_data.SetFolder(folder_src)
 			file_object.file_data.Load()
@@ -189,6 +210,9 @@ class UPFG():
 				FolderDest = folder_dest
 				RelativeFolder = relative_folder
 				File = file_object
+				ModuleFolder =  os.path.relpath(module_root_folder, folder_in)
+				RootFolderIn = folder_in
+				RootFolderOut = folder_out
 
 			yield CustomData
 
@@ -244,7 +268,10 @@ class UPFG():
 			return Utils.String.RemoveSpaces(namespace)
 
 		def NormalizeFilename(filename):
-			return Utils.String.ToLowerCase(filename)
+			return filename.replace('\\', '/')
+
+		def NormalizeFilepath(filename):
+			return os.path.abspath(UPFG.TemplateDef.NormalizeFilename(filename))
 		
 	class Labels():
 		upfgInputTemplates = 'upfgInputTemplates'
@@ -275,10 +302,10 @@ class UPFG():
 			return self.settings.data[UPFG.Labels.upfgInputTemplates]
 		
 		def GetInputClassesPath(self):
-			return self.settings.data[UPFG.Labels.upfgInputClasses]
+			return os.path.abspath(self.settings.data[UPFG.Labels.upfgInputClasses])
 
 		def GetOutputClassesPath(self):
-			return self.settings.data[UPFG.Labels.upfgOutputClasses]
+			return os.path.abspath(self.settings.data[UPFG.Labels.upfgOutputClasses])
 
 		def GetTemplateExt(self):
 			return self.settings.data[UPFG.Labels.upfgTemplateExt]
@@ -291,6 +318,13 @@ class UPFG():
 
 		def GetAPI(self):
 			return self.settings.data["API"]
+
+		def GetIncludePath(self, upfgClassName):
+			include_relative_module_path = UPFG.FileModulePaths[upfgClassName] if upfgClassName in UPFG.FileModulePaths else upfgClassName
+			return include_relative_module_path
+			# include_full_path = UPFG.FilePaths[upfgClassName] if upfgClassName in UPFG.FilePaths else upfgClassName
+			# relative_path_start = self.GetOutputClassesPath() #os.path.dirname(os.path.realpath(__file__))
+			# return os.path.relpath(include_full_path, relative_path_start)
 
 		def SetInputTemplatesPath(self, value):
 			self.settings.data[UPFG.Labels.upfgInputTemplates] = value
@@ -329,8 +363,11 @@ class UPFGAbstractTemplateData(JsonFileData):
 
 	def GetAlias(self, use_precached=False):
 		if 'alias' not in self.data:
-			return ''
+			return self.GetName()
 		return UPFG.TemplateDef.NormalizeAlias(self.data["alias"])
+	
+	def GetPlainName(self):
+		return self.GetName()
 
 	def GetName(self, use_precached=False):
 		if 'name' not in self.data:
@@ -347,6 +384,9 @@ class UPFGAbstractTemplateData(JsonFileData):
 
 	def GetFilename(self):
 		return UPFG.TemplateDef.NormalizeFilename(self.GetName()+self.GetExtension())
+	
+	def GetFilepath(self):
+		return UPFG.TemplateDef.NormalizeFilepath(os.path.join(self.GetFolder(), self.GetFilename()))
 
 	def SetAlias(self, alias):
 		self.data["alias"] = alias
@@ -382,7 +422,8 @@ class UPFGAbstractTemplateData(JsonFileData):
 			try:
 				template_content = Template(template_content).render(**built_data, **UPFG.TypeAliases)
 			except Exception as error:
-				print("Some error occurred while rendering template: \n>>>\t", error, "\n")
+				print("Some error occurred while rendering", self.GetName(),"with template", self.GetType(),": \n>>>\t", error, "\n")
+				break
 		return template_content
 
 class UPFGModuleTemplateData(UPFGAbstractTemplateData):
@@ -519,14 +560,23 @@ class GenericFile():
 	def Data(self):
 		return self.file_data
 		
+	def GetPlainName(self):
+		return self.file_data.GetPlainName()
+
 	def GetName(self):
 		return self.file_data.GetName()
 		
 	def GetExtension(self):
 		return self.file_data.GetExtension()
 
+	def GetFolder(self):
+		return self.file_data.GetFolder()
+
 	def GetFilename(self):
-		return self.GetName()+self.GetExtension()
+		return UPFG.TemplateDef.NormalizeFilename(self.GetName()+self.GetExtension())
+	
+	def GetFilepath(self):
+		return UPFG.TemplateDef.NormalizeFilepath(os.path.join(self.GetFolder(), self.GetFilename()))
 
 	def GenerateContent(self):
 		return self.file_data.data
@@ -543,7 +593,7 @@ class HeaderFile(GenericFile):
 
 	def Template(self):
 		return self.file_data
-		
+
 	def GetName(self):
 		return self.file_data.GetClassName()
 
@@ -619,12 +669,19 @@ if __name__== "__main__":
 	# Cook all templates in local data
 
 	for data in UPFG.RecurseFiles():
-		if not hasattr(data.File.file_data, "GetAlias"):
-			continue
+		filepath_relative_to_root = os.path.relpath(data.File.GetFilepath(), data.RootFolderIn)
+		filepath_relative_to_module = os.path.relpath(filepath_relative_to_root, data.ModuleFolder)
 
-		alias = data.File.file_data.GetAlias()
-		if alias is not "":
-			UPFG.TypeAliases[alias] = data.File.GetName()
+		UPFG.FilePaths[data.File.GetName()] = filepath_relative_to_root
+		UPFG.FilePaths[data.File.GetPlainName()] = filepath_relative_to_root
+		
+		UPFG.FileModulePaths[data.File.GetName()] = filepath_relative_to_module
+		UPFG.FileModulePaths[data.File.GetPlainName()] = filepath_relative_to_module
+
+		if hasattr(data.File.file_data, "GetAlias"):
+			alias = data.File.file_data.GetAlias()
+			if alias is not "":
+				UPFG.TypeAliases[alias] = data.File.GetName()
 
 	# For all files you find in a certain folder (and subfolders recursively)
 	# consider each file and generate, from it as a template, the corresponding
